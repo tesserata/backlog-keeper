@@ -2,8 +2,8 @@ import discord
 from discord import app_commands
 
 ALL_CHANNELS = "all"
-BACKLOG_EMOJI = "backlog"
-IN_PROGRESS_EMOJI = "having_a_think"
+BACKLOG_EMOJI = ":backlog:"
+IN_PROGRESS_EMOJI = ":having_a_think:"
 
 
 def get_backlog_commands() -> list[app_commands.Command]:
