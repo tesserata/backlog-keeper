@@ -1,12 +1,10 @@
-import datetime
 import discord
 from discord.ext.commands import Bot
 from discord import app_commands
 from loguru import logger
 
 from backlog_keeper.config import Config
-from backlog_keeper.discord_service import DiscordService
-from backlog_keeper.commands.backlog import get_backlog_commands
+from backlog_keeper.commands import get_backlog_commands
 
 
 def setup_intents() -> discord.Intents:
@@ -22,7 +20,6 @@ class BacklogBot(Bot):
         super().__init__(command_prefix="/", intents=setup_intents())
         self.remove_command("help")
         self.config = config
-        self.discord_service = DiscordService(self)
 
     async def setup_hook(self) -> None:
         guild = discord.Object(id=self.config.GUILD_ID)
