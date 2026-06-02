@@ -2,6 +2,8 @@ import discord
 from discord import app_commands
 
 ALL_CHANNELS = "all"
+BACKLOG_EMOJI = "backlog"
+IN_PROGRESS_EMOJI = "having_a_think"
 
 
 def get_backlog_commands() -> list[app_commands.Command]:
@@ -49,7 +51,7 @@ async def _get_backlog_selector(interaction: discord.Interaction):
 
 
 def _get_available_text_channels(
-    interaction: discord.Interaction,
+        interaction: discord.Interaction,
 ) -> list[discord.TextChannel]:
     assert interaction.guild is not None
 
@@ -78,10 +80,10 @@ def _get_available_text_channels(
 
 class BacklogChannelSelectorView(discord.ui.View):
     def __init__(
-        self,
-        channels: list[discord.TextChannel],
-        user_id: int,
-        timeout: float = 60*60,
+            self,
+            channels: list[discord.TextChannel],
+            user_id: int,
+            timeout: float = 60 * 60,
     ):
         super().__init__(timeout=timeout)
         self.user_id = user_id
@@ -96,7 +98,6 @@ class BacklogChannelSelect(discord.ui.Select):
             discord.SelectOption(
                 label="All channels",
                 value=ALL_CHANNELS,
-                description="Which channels should be checked?",
             )
         ]
 
@@ -149,12 +150,25 @@ class BacklogChannelSelect(discord.ui.Select):
 
 
 async def _get_backlog(
-    channels: list[discord.TextChannel],
-    user: discord.User | discord.Member,
+        channels: list[discord.TextChannel],
+        user: discord.User | discord.Member,
 ) -> str:
-    channel_mentions = ", ".join(channel.mention for channel in channels)
+    summary = ""
+    for channel in channels:
+        channel_backlog = await _get_channel_backlog(channel, user)
+        summary += f"{channel.mention}:\n"
+        summary += "\n".join([f"\t{message.jump_url}" for message in channel_backlog])
 
-    return (
-        f"Backlog for {channel_mentions}\n\n"
-        "TODO: scan for messages marked with `to_answer`."
-    )
+    return summary
+
+
+async def _get_channel_backlog(
+        channel: discord.TextChannel,
+        user: discord.User | discord.Member
+) -> list[discord.Message]:
+    backlog = []
+    messages = channel.history(limit=200)
+    async for message in messages:
+        if BACKLOG_EMOJI in message.reactions:
+            backlog.append(message)
+    return backlog
