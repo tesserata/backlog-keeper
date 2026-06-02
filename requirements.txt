@@ -1,0 +1,7 @@
+uvicorn==0.22.0
+discord.py==2.3.2
+python-dateutil
+async-lru
+loguru
+pydantic==2.12.3
+pydantic-settings==2.11.0
