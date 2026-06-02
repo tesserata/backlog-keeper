@@ -11,12 +11,9 @@ from backlog_keeper.commands.backlog import get_backlog_commands
 
 def setup_intents() -> discord.Intents:
     intents = discord.Intents.default()
-    intents.message_content = True
-    intents.emojis = True
     intents.guild_messages = True
     intents.guild_reactions = True
     intents.webhooks = True
-    intents.members = True
     return intents
 
 
