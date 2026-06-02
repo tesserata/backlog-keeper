@@ -78,8 +78,9 @@ async def _build_backlog_message(
     for channel in channels:
         backlog = await _get_channel_backlog(channel, user)
         if backlog:
+            messages.append("---\n")
             urls = "\n".join(m.jump_url for m in backlog)
-            messages.append(f"{urls}\n---")
+            messages.append(f"{urls}\n")
 
     return "\n".join(messages)
 
