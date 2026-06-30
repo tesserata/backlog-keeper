@@ -32,7 +32,8 @@ async def _get_backlog_all(interaction: discord.Interaction) -> None:
     await interaction.response.send_message("Checking backlog...", ephemeral=True)
     result = await _build_backlog_message(channels, interaction.user)
     await interaction.edit_original_response(
-        content=result or f"Everything covered {get_custom_emoji(interaction.guild, "tay_wow")}"
+        content=result
+        or f"Everything covered {get_custom_emoji(interaction.guild, "tay_wow")}"
     )
 
 
@@ -58,20 +59,21 @@ async def _get_backlog_selector(interaction: discord.Interaction) -> None:
 
 
 async def _on_channels_selected(
-        interaction: discord.Interaction,
-        channels: list[discord.TextChannel],
+    interaction: discord.Interaction,
+    channels: list[discord.TextChannel],
 ) -> None:
     await interaction.response.edit_message(content="Checking backlog...", view=None)
     result = await _build_backlog_message(channels, interaction.user)
     await interaction.edit_original_response(
-        content=result or f"Everything covered {get_custom_emoji(interaction.guild, "tay_wow")}",
-        view=None
+        content=result
+        or f"Everything covered {get_custom_emoji(interaction.guild, "tay_wow")}",
+        view=None,
     )
 
 
 async def _build_backlog_message(
-        channels: list[discord.TextChannel],
-        user: discord.User | discord.Member,
+    channels: list[discord.TextChannel],
+    user: discord.User | discord.Member,
 ) -> str:
     messages: list[str] = []
 
@@ -92,12 +94,12 @@ def _reaction_name(emoji: discord.Emoji | discord.PartialEmoji | str) -> str:
 
 
 async def _get_channel_backlog(
-        channel: discord.TextChannel,
-        user: discord.User | discord.Member,
+    channel: discord.TextChannel,
+    user: discord.User | discord.Member,
 ) -> list[discord.Message]:
     backlog: list[discord.Message] = []
 
-    async for message in channel.history(limit=200):
+    async for message in channel.history(limit=2000):
         names = [_reaction_name(r.emoji) for r in message.reactions]
         if BACKLOG_EMOJI in names and message.author != user:
             backlog.append(message)

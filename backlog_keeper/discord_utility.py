@@ -1,5 +1,6 @@
 import discord
 
+
 def get_available_text_channels(
     interaction: discord.Interaction,
 ) -> list[discord.TextChannel]:
@@ -13,7 +14,11 @@ def get_available_text_channels(
         bot_perms = channel.permissions_for(bot_member)
         user_perms = channel.permissions_for(user)
 
-        if bot_perms.view_channel and bot_perms.read_message_history and user_perms.view_channel:
+        if (
+            bot_perms.view_channel
+            and bot_perms.read_message_history
+            and user_perms.view_channel
+        ):
             channels.append(channel)
 
     return channels
@@ -37,6 +42,7 @@ async def resolve_channels(
         return None
 
     return channels
+
 
 def get_custom_emoji(guild: discord.Guild | None, name: str) -> str:
     emoji = discord.utils.get(guild.emojis, name=name)
