@@ -1,12 +1,21 @@
+from typing import TYPE_CHECKING, cast
+
 import discord
 from discord import app_commands
 
-from backlog_keeper.ui import BacklogChannelSelectorView
+from backlog_keeper.ui import BacklogChannelSelectorView, ConfirmView
 from backlog_keeper.discord_utility import resolve_channels, get_custom_emoji
+from backlog_keeper.index import BacklogEntry, BacklogIndex
 
-BACKLOG_EMOJI = "backlog"
-IN_PROGRESS_EMOJI = "having_a_think"
-ALL_CHANNELS = "all"
+if TYPE_CHECKING:
+    from backlog_keeper.bot import BacklogBot
+
+MESSAGE_LIMIT = 1900
+IN_PROGRESS_MARK = " ✅"
+
+_CleanTarget = tuple[
+    discord.TextChannel, list[tuple[discord.Message, list[discord.Reaction]]]
+]
 
 
 def get_backlog_commands() -> list[app_commands.Command]:
@@ -21,7 +30,16 @@ def get_backlog_commands() -> list[app_commands.Command]:
             description="Get a list of unanswered messages",
             callback=_get_backlog_all,
         ),
+        app_commands.Command(
+            name="clean",
+            description="Clear backlog + in-progress markers from selected channels",
+            callback=_clean,
+        ),
     ]
+
+
+def _index(interaction: discord.Interaction) -> BacklogIndex:
+    return cast("BacklogBot", interaction.client).backlog_index
 
 
 async def _get_backlog_all(interaction: discord.Interaction) -> None:
@@ -30,11 +48,10 @@ async def _get_backlog_all(interaction: discord.Interaction) -> None:
         return
 
     await interaction.response.send_message("Checking backlog...", ephemeral=True)
-    result = await _build_backlog_message(channels, interaction.user)
-    await interaction.edit_original_response(
-        content=result
-        or f"Everything covered {get_custom_emoji(interaction.guild, "tay_wow")}"
+    chunks = await _build_backlog_chunks(
+        _index(interaction), channels, interaction.user
     )
+    await _send_chunks(interaction, chunks)
 
 
 async def _get_backlog_selector(interaction: discord.Interaction) -> None:
@@ -59,49 +76,149 @@ async def _get_backlog_selector(interaction: discord.Interaction) -> None:
 
 
 async def _on_channels_selected(
-    interaction: discord.Interaction,
-    channels: list[discord.TextChannel],
+        interaction: discord.Interaction,
+        channels: list[discord.TextChannel],
 ) -> None:
     await interaction.response.edit_message(content="Checking backlog...", view=None)
-    result = await _build_backlog_message(channels, interaction.user)
-    await interaction.edit_original_response(
-        content=result
-        or f"Everything covered {get_custom_emoji(interaction.guild, "tay_wow")}",
-        view=None,
+    chunks = await _build_backlog_chunks(
+        _index(interaction), channels, interaction.user
+    )
+    await _send_chunks(interaction, chunks)
+
+
+async def _build_backlog_chunks(
+        index: BacklogIndex,
+        channels: list[discord.TextChannel],
+        user: discord.User | discord.Member,
+) -> list[str]:
+    lines: list[str] = []
+
+    for channel in channels:
+        entries = await index.get_backlog(channel, user)
+        if not entries:
+            continue
+        lines.append("---")
+        lines.extend(_format_entry(entry) for entry in entries)
+
+    return _pack_lines(lines, MESSAGE_LIMIT)
+
+
+def _format_entry(entry: BacklogEntry) -> str:
+    postfix = IN_PROGRESS_MARK if entry.has_in_progress else ""
+    return f"{entry.jump_url}{postfix}"
+
+
+def _pack_lines(lines: list[str], limit: int) -> list[str]:
+    chunks: list[str] = []
+    current = ""
+
+    for line in lines:
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > limit and current:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+
+    if current:
+        chunks.append(current)
+
+    return chunks
+
+
+async def _send_chunks(interaction: discord.Interaction, chunks: list[str]) -> None:
+    if not chunks:
+        await interaction.edit_original_response(
+            content=f"Everything covered {get_custom_emoji(interaction.guild, 'tay_wow')}"
+        )
+        return
+
+    await interaction.edit_original_response(content=chunks[0])
+    for chunk in chunks[1:]:
+        await interaction.followup.send(chunk, ephemeral=True)
+
+
+async def _clean(interaction: discord.Interaction) -> None:
+    channels = await resolve_channels(interaction)
+    if channels is None:
+        return
+
+    if len(channels) > 24:
+        await interaction.response.send_message(
+            "Too many channels for one selector.", ephemeral=True
+        )
+        return
+
+    view = BacklogChannelSelectorView(
+        channels=channels,
+        user_id=interaction.user.id,
+        on_select=_on_clean_channels_selected,
+    )
+    await interaction.response.send_message(
+        "What channels should I clean?", view=view, ephemeral=True
     )
 
 
-async def _build_backlog_message(
-    channels: list[discord.TextChannel],
-    user: discord.User | discord.Member,
-) -> str:
-    messages: list[str] = []
+async def _on_clean_channels_selected(
+        interaction: discord.Interaction,
+        channels: list[discord.TextChannel],
+) -> None:
+    await interaction.response.edit_message(content="Scanning channels...", view=None)
 
+    index = _index(interaction)
+    targets: list[_CleanTarget] = []
+    total = 0
     for channel in channels:
-        backlog = await _get_channel_backlog(channel, user)
-        if backlog:
-            messages.append("---\n")
-            urls = "\n".join(m.jump_url for m in backlog)
-            messages.append(f"{urls}\n")
+        messages = await index.collect_user_marked_messages(channel, interaction.user)
+        if messages:
+            targets.append((channel, messages))
+            total += len(messages)
 
-    return "\n".join(messages)
+    if total == 0:
+        await interaction.edit_original_response(
+            content="You have no backlog or in-progress markers to clean here.",
+            view=None,
+        )
+        return
+
+    async def _confirm(confirm_interaction: discord.Interaction) -> None:
+        await _perform_clean(confirm_interaction, index, targets)
+
+    view = ConfirmView(user_id=interaction.user.id, on_confirm=_confirm)
+    await interaction.edit_original_response(
+        content=(
+            f"This will remove your backlog + in-progress reactions from {total} "
+            f"message(s) across {len(targets)} channel(s). Continue?"
+        ),
+        view=view,
+    )
 
 
-def _reaction_name(emoji: discord.Emoji | discord.PartialEmoji | str) -> str:
-    if isinstance(emoji, str):
-        return emoji
-    return emoji.name or ""
+async def _perform_clean(
+        interaction: discord.Interaction,
+        index: BacklogIndex,
+        targets: list[_CleanTarget],
+) -> None:
+    await interaction.response.edit_message(content="Cleaning...", view=None)
 
+    user = interaction.user
+    cleared = 0
+    failed: list[discord.TextChannel] = []
+    for channel, messages in targets:
+        for message, reactions in messages:
+            try:
+                for reaction in reactions:
+                    await message.remove_reaction(reaction.emoji, user)
+            except discord.NotFound:
+                continue
+            except (discord.Forbidden, discord.HTTPException):
+                failed.append(channel)
+                break
+            cleared += 1
+        index.drop_channel(channel.id)
 
-async def _get_channel_backlog(
-    channel: discord.TextChannel,
-    user: discord.User | discord.Member,
-) -> list[discord.Message]:
-    backlog: list[discord.Message] = []
-
-    async for message in channel.history(limit=2000):
-        names = [_reaction_name(r.emoji) for r in message.reactions]
-        if BACKLOG_EMOJI in names and message.author != user:
-            backlog.append(message)
-
-    return backlog
+    summary = f"Removed your markers from {cleared} message(s)."
+    if failed:
+        names = ", ".join(f"#{channel.name}" for channel in failed)
+        summary += f" Couldn't finish in {names} (missing Manage Messages?)."
+    await interaction.edit_original_response(content=summary, view=None)

@@ -9,14 +9,42 @@ OnSelectCallback = Callable[
     Awaitable[None],
 ]
 
+OnConfirmCallback = Callable[[discord.Interaction], Awaitable[None]]
+
+
+class ConfirmView(discord.ui.View):
+    def __init__(
+            self,
+            user_id: int,
+            on_confirm: OnConfirmCallback,
+            timeout: float = 60 * 5,
+    ):
+        super().__init__(timeout=timeout)
+        self.user_id = user_id
+        self._on_confirm = on_confirm
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
+    async def confirm(
+            self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        self.stop()
+        await self._on_confirm(interaction)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(
+            self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        self.stop()
+        await interaction.response.edit_message(content="Cancelled.", view=None)
+
 
 class BacklogChannelSelectorView(discord.ui.View):
     def __init__(
-        self,
-        channels: list[discord.TextChannel],
-        user_id: int,
-        on_select: OnSelectCallback,
-        timeout: float = 60 * 60,
+            self,
+            channels: list[discord.TextChannel],
+            user_id: int,
+            on_select: OnSelectCallback,
+            timeout: float = 60 * 60,
     ):
         super().__init__(timeout=timeout)
         self.user_id = user_id
@@ -25,9 +53,9 @@ class BacklogChannelSelectorView(discord.ui.View):
 
 class BacklogChannelSelect(discord.ui.Select):
     def __init__(
-        self,
-        channels: list[discord.TextChannel],
-        on_select: OnSelectCallback,
+            self,
+            channels: list[discord.TextChannel],
+            on_select: OnSelectCallback,
     ):
         self._channels_by_id = {channel.id: channel for channel in channels}
         self._on_select = on_select
