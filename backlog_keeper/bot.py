@@ -15,6 +15,7 @@ def setup_intents() -> discord.Intents:
     intents.guild_messages = True
     intents.guild_reactions = True
     intents.webhooks = True
+    intents.message_content = True
     return intents
 
 

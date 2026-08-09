@@ -1,7 +1,8 @@
+import io
 from typing import TYPE_CHECKING, cast
 
 import discord
-from discord import app_commands
+from discord import TextChannel, app_commands
 
 from backlog_keeper.ui import BacklogChannelSelectorView, ConfirmView
 from backlog_keeper.discord_utility import resolve_channels, get_custom_emoji
@@ -35,6 +36,11 @@ def get_backlog_commands() -> list[app_commands.Command]:
             description="Clear backlog + in-progress markers from selected channels",
             callback=_clean,
         ),
+        app_commands.Command(
+            name="download_backlog",
+            description="Download backlog as a text file",
+            callback=_download_backlog,
+        )
     ]
 
 
@@ -106,6 +112,15 @@ async def _build_backlog_chunks(
 def _format_entry(entry: BacklogEntry) -> str:
     postfix = IN_PROGRESS_MARK if entry.has_in_progress else ""
     return f"{entry.jump_url}{postfix}"
+
+async def _get_entry_text(entry: BacklogEntry, channel: TextChannel) -> str:
+    try:
+        msg = await channel.fetch_message(entry.message_id)
+        content = msg.content
+    except discord.NotFound:
+        content = f"couldnt find message {entry.jump_url}"
+
+    return f"{entry.jump_url}\n{content}\n----"
 
 
 def _pack_lines(lines: list[str], limit: int) -> list[str]:
@@ -222,3 +237,23 @@ async def _perform_clean(
         names = ", ".join(f"#{channel.name}" for channel in failed)
         summary += f" Couldn't finish in {names} (missing Manage Messages?)."
     await interaction.edit_original_response(content=summary, view=None)
+
+async def _download_backlog(interaction: discord.Interaction) -> None:
+    channels = await resolve_channels(interaction)
+    if channels is None:
+        return
+
+    await interaction.response.send_message("Checking backlog...", ephemeral=True)
+    lines: list[str] = []
+
+    index = _index(interaction)
+    for channel in channels:
+        entries = await index.get_backlog(channel, interaction.user)
+        if not entries:
+            continue
+        lines.append("*"*10)
+        for entry in entries:
+            lines.append(await _get_entry_text(entry, channel))
+    buffer = io.BytesIO("\n\n".join(lines).encode("utf-8"))
+    await interaction.edit_original_response(content="Gathered the backlog, please see the file", view=None)
+    await interaction.followup.send(file=discord.File(buffer, filename="backlog.txt"), ephemeral=True)
